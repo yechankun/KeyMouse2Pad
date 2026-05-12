@@ -870,6 +870,10 @@ class ConverterGui:
         self.block_original_input = tk.BooleanVar(value=False)
         self.last_time = time.monotonic()
         self.last_render_time = 0.0
+        self._resizing = False
+        self._resize_after_id: str | None = None
+        self._render_pending = True
+        self._last_render_signature: tuple[object, ...] | None = None
         self.last_mouse_pos: tuple[int, int] | None = None
         self.state = GamepadState()
         self.output = WindowsControllerOutput()
@@ -1048,6 +1052,19 @@ class ConverterGui:
         self.canvas.bind("<ButtonPress>", self._on_mouse_press)
         self.canvas.bind("<ButtonRelease>", self._on_mouse_release)
         self.canvas.bind("<Leave>", self._on_mouse_leave)
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+
+    def _on_canvas_configure(self, _event) -> None:
+        self._resizing = True
+        self._render_pending = True
+        if self._resize_after_id is not None:
+            self.root.after_cancel(self._resize_after_id)
+        self._resize_after_id = self.root.after(140, self._finish_resize)
+
+    def _finish_resize(self) -> None:
+        self._resize_after_id = None
+        self._resizing = False
+        self._render_pending = True
 
     def _on_key_press(self, event) -> None:
         self.input_state.keys.add(event.keysym.lower())
@@ -1127,13 +1144,13 @@ class ConverterGui:
 
     def _toggle_running_hotkey(self) -> None:
         self.running.set(not self.running.get())
-        self.status_text.set("Running toggled by F8")
+        self._set_text(self.status_text, "Running toggled by F8")
 
     def _toggle_blocking_hotkey(self) -> None:
         if self.block_original_input.get():
             self.block_original_input.set(False)
             self.global_capture.block_original_input = False
-            self.status_text.set("Exclusive pad mode off")
+            self._set_text(self.status_text, "Exclusive pad mode off")
         else:
             self._enable_exclusive_mode()
 
@@ -1142,7 +1159,7 @@ class ConverterGui:
             self._enable_exclusive_mode()
         else:
             self.global_capture.block_original_input = False
-            self.status_text.set("Exclusive pad mode off")
+            self._set_text(self.status_text, "Exclusive pad mode off")
 
     def _enable_exclusive_mode(self) -> None:
         self.running.set(True)
@@ -1155,17 +1172,17 @@ class ConverterGui:
         if not self.output.available:
             self.block_original_input.set(False)
             self.global_capture.block_original_input = False
-            self.status_text.set("Controller output unavailable; exclusive mode was not enabled")
+            self._set_text(self.status_text, "Controller output unavailable; exclusive mode was not enabled")
             return
 
         if not self.global_capture.active:
             self.block_original_input.set(False)
             self.global_capture.block_original_input = False
-            self.status_text.set("Global capture unavailable; exclusive mode was not enabled")
+            self._set_text(self.status_text, "Global capture unavailable; exclusive mode was not enabled")
             return
 
         self.block_original_input.set(True)
-        self.status_text.set("Exclusive pad mode on")
+        self._set_text(self.status_text, "Exclusive pad mode on")
 
     def _tick(self) -> None:
         now = time.monotonic()
@@ -1188,21 +1205,26 @@ class ConverterGui:
             if self.output_enabled.get() and self.output.available:
                 self.output.submit(self.state)
             if exclusive_ready:
-                self.status_text.set("Exclusive pad mode active")
+                self._set_text(self.status_text, "Exclusive pad mode active")
             else:
-                self.status_text.set("Capturing input")
+                self._set_text(self.status_text, "Capturing input")
         else:
             self.output.reset()
-            self.status_text.set("Paused")
+            self._set_text(self.status_text, "Paused")
 
         if not self._using_global_capture():
             self.input_state.mouse_dx = 0
             self.input_state.mouse_dy = 0
-        if now - self.last_render_time >= 0.10:
+        should_render = self._render_pending or now - self.last_render_time >= 0.10
+        if should_render and not self._resizing:
+            self._render_pending = False
             self.last_render_time = now
-            self.capture_text.set(self.global_capture.status)
-            self._draw_pad()
-            self._update_state_text(input_state)
+            render_signature = self._render_signature(input_state)
+            if render_signature != self._last_render_signature:
+                self._last_render_signature = render_signature
+                self._set_text(self.capture_text, self.global_capture.status)
+                self._draw_pad()
+                self._update_state_text(input_state)
         self.root.after(33, self._tick)
 
     def _process_hotkeys(self) -> None:
@@ -1221,9 +1243,33 @@ class ConverterGui:
         return self.input_state
 
     def _on_close(self) -> None:
+        if self._resize_after_id is not None:
+            self.root.after_cancel(self._resize_after_id)
+            self._resize_after_id = None
         self.output.reset()
         self.global_capture.stop()
         self.root.destroy()
+
+    @staticmethod
+    def _set_text(variable, value: str) -> None:
+        if variable.get() != value:
+            variable.set(value)
+
+    def _render_signature(self, input_state: InputSnapshot) -> tuple[object, ...]:
+        return (
+            self.canvas.winfo_width(),
+            self.canvas.winfo_height(),
+            self.state.left_x,
+            self.state.left_y,
+            self.state.right_x,
+            self.state.right_y,
+            self.state.left_trigger,
+            self.state.right_trigger,
+            self.state.buttons,
+            tuple(sorted(input_state.keys)),
+            tuple(sorted(input_state.mouse_buttons)),
+            self.global_capture.status,
+        )
 
     def _draw_pad(self) -> None:
         canvas = self.canvas
@@ -1286,14 +1332,15 @@ class ConverterGui:
 
     def _update_state_text(self, input_state: InputSnapshot) -> None:
         active_buttons = [name for name in BUTTON_BITS if self.state.pressed(name)]
-        self.state_text.set(
+        self._set_text(
+            self.state_text,
             f"LX={self.state.left_x:6d} LY={self.state.left_y:6d} "
             f"RX={self.state.right_x:6d} RY={self.state.right_y:6d}\n"
             f"LT={self.state.left_trigger:3d} RT={self.state.right_trigger:3d} "
-            f"Buttons={','.join(active_buttons) if active_buttons else '-'}"
+            f"Buttons={','.join(active_buttons) if active_buttons else '-'}",
         )
         active_inputs = sorted(input_state.keys | input_state.mouse_buttons)
-        self.input_text.set(f"Inputs={','.join(active_inputs[:12]) if active_inputs else '-'}")
+        self._set_text(self.input_text, f"Inputs={','.join(active_inputs[:12]) if active_inputs else '-'}")
 
 
 def self_test() -> None:
