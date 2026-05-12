@@ -1,0 +1,48 @@
+name: Bug report
+description: Report broken or unexpected behavior.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Release version, commit hash, or "current main".
+      placeholder: v0.1.0 or fdd6144
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 23H2
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Keep this concrete and ordered.
+      placeholder: |
+        1. Open KeyMouse2Pad
+        2. Enable ...
+        3. Press ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes, logs, or screenshots
+      description: Optional, but useful for input-capture or controller-output bugs.

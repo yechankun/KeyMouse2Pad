@@ -6,9 +6,16 @@ if not exist ".venv-win\Scripts\python.exe" (
     py -3 -m venv .venv-win
 )
 
+set NEED_INSTALL=0
+
 ".venv-win\Scripts\python.exe" -m pip show pyinstaller >nul 2>nul
-if errorlevel 1 (
-    ".venv-win\Scripts\python.exe" -m pip install pyinstaller
+if errorlevel 1 set NEED_INSTALL=1
+
+".venv-win\Scripts\python.exe" -m pip show vgamepad >nul 2>nul
+if errorlevel 1 set NEED_INSTALL=1
+
+if "%NEED_INSTALL%"=="1" (
+    ".venv-win\Scripts\python.exe" -m pip install pyinstaller vgamepad
 )
 
 ".venv-win\Scripts\python.exe" -m PyInstaller ^

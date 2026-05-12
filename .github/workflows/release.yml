@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  validate-tag:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Ensure tag uses semantic version format
+        id: version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tags must look like v0.1.0 or v0.1.0-beta.1" >&2
+            exit 1
+          fi
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+      - name: Ensure tag points to main history
+        shell: bash
+        run: |
+          git fetch origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "Release tags must point to a commit on main." >&2
+            exit 1
+          fi
+
+  windows-exe:
+    name: Build Windows executable
+    runs-on: windows-latest
+    needs: validate-tag
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run GUI self-test
+        run: python gui/converter_gui.py --self-test
+      - name: Build executable
+        shell: cmd
+        run: build_exe.bat
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KeyMouse2Pad-${{ needs.validate-tag.outputs.version }}-windows
+          path: dist/KeyMouse2Pad.exe
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: KeyMouse2Pad ${{ needs.validate-tag.outputs.version }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          prerelease: ${{ contains(needs.validate-tag.outputs.version, '-') }}
+          files: dist/KeyMouse2Pad.exe

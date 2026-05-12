@@ -2,46 +2,30 @@
 
 SPDX-License-Identifier: GPL-3.0-or-later
 
-Keyboard and mouse to gamepad converter for Windows. The repository is
-structured so the mapping engine can be tested without Windows Driver Kit,
-while the Windows service and driver boundary are kept explicit.
+English | [한국어](README.ko.md)
 
-## Current Scope
+KeyMouse2Pad converts keyboard and mouse input into gamepad controls on Windows.
+It is built for players who want a lightweight keyboard/mouse-to-controller
+converter with editable mappings and a simple GUI.
 
-- Platform-independent mapping engine in C++20.
-- Simple Tk GUI for testing the converter behavior interactively.
-- System-wide Windows keyboard/mouse capture through low-level hooks.
-- Windows Xbox 360 controller output through a kernel driver backend when available.
-- Keyboard button mapping.
-- WASD-to-left-stick analog synthesis.
-- Mouse-delta-to-right-stick analog synthesis.
-- Ramp, smoothing, deadzone, sensitivity, and recenter behavior.
-- HID report layout notes for a future Windows kernel driver.
-- Local tests that run on Linux/WSL with `g++`.
+## Status
 
-This is not yet a signed Windows kernel driver. A real Windows driver requires
-WDK, test signing during development, and production signing before normal
-distribution.
+- Windows-focused GUI application.
+- System-wide keyboard and mouse capture on Windows.
+- Xbox 360 controller output through the `vgamepad` / ViGEm stack when available.
+- Editable keyboard and mouse mappings saved locally.
+- C++ mapping engine tests for the portable core.
+- Experimental Windows HID driver boundary for future kernel-driver work.
 
-## Build And Test
+This project is not a signed production kernel driver. Some runtime features may
+need administrator privileges depending on the target game or application.
 
-```sh
-make test
-make demo
-make gui
-```
+## Download
 
-Run the demo:
+Stable builds are published from GitHub Releases once a version tag is created.
+For development builds, run from source or build the executable locally.
 
-```sh
-./build/converter_demo
-```
-
-Run the GUI:
-
-```sh
-make run-gui
-```
+## Run From Source
 
 Windows:
 
@@ -49,11 +33,10 @@ Windows:
 run_gui.bat
 ```
 
-Linux/WSL with desktop display:
+Linux/WSL can run the mapping tests, but the actual input capture and controller
+output features are Windows-only.
 
-```sh
-./run_gui.sh
-```
+## Build
 
 Build the Windows executable:
 
@@ -61,43 +44,40 @@ Build the Windows executable:
 build_exe.bat
 ```
 
-or from WSL:
+The output is:
 
-```sh
-make exe
+```text
+dist\KeyMouse2Pad.exe
 ```
 
-The output is `dist/KeyMouse2Pad.exe`.
+Run local checks:
 
-The GUI captures keyboard and mouse input globally on Windows when `Global capture`
-is enabled. On Windows, it can submit the generated state to an Xbox 360
-controller backend. Run as administrator if you need to capture input from
-elevated applications.
+```sh
+make test
+make gui
+```
+
+On Windows without `make`, run the GUI smoke test directly:
+
+```powershell
+py -3 gui\converter_gui.py --self-test
+```
+
+## Documentation
+
+- [Windows setup](docs/setup-windows.md)
+- [Architecture](docs/architecture.md)
+- [Branching](docs/branching.md)
+- [Korean Windows setup](docs/setup-windows.ko.md)
+
+## Contributing
+
+Keep contributions small and practical. Open an issue for behavior changes, send
+a PR for focused fixes, and let CI handle the repetitive checks.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 or later.
-See `LICENSE` for the full license text.
-
-## Target Runtime Architecture
-
-```text
-Keyboard / Mouse
-        |
-Windows Raw Input Service
-        |
-Mapping Engine
-        |
-Driver Client: IOCTL or shared memory
-        |
-Kernel HID Gamepad Driver
-        |
-Windows / Game
-```
-
-## Next Driver Milestone
-
-1. Build `drivers/VirtualHidGamepad/VirtualHidGamepad.vcxproj` with Visual Studio + WDK.
-2. Install the root-enumerated test device with WDK `devcon`.
-3. Connect the GUI/service to `IOCTL_CONVERTER_SET_GAMEPAD_REPORT`.
-4. Validate with `joy.cpl`, Gamepad Tester, Steam Input, and target games.
+KeyMouse2Pad is licensed under the GNU General Public License v3.0 or later.
+See [LICENSE](LICENSE).
