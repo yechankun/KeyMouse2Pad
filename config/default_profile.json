@@ -1,0 +1,37 @@
+{
+  "leftStick": {
+    "x": { "negative": "A", "positive": "D" },
+    "y": { "negative": "S", "positive": "W" }
+  },
+  "buttons": {
+    "Space": "A",
+    "LeftCtrl": "B",
+    "E": "X",
+    "R": "Y",
+    "Q": "LeftBumper",
+    "F": "RightBumper",
+    "Tab": "Back",
+    "Enter": "Start",
+    "Up": "DpadUp",
+    "Down": "DpadDown",
+    "Left": "DpadLeft",
+    "Right": "DpadRight"
+  },
+  "mouseButtons": {
+    "Middle": "RightThumb",
+    "X1": "LeftBumper",
+    "X2": "RightBumper"
+  },
+  "mouseTriggers": {
+    "Left": "RightTrigger",
+    "Right": "LeftTrigger"
+  },
+  "analog": {
+    "deadzone": 0.05,
+    "leftRampUpPerSecond": 18.0,
+    "leftRampDownPerSecond": 24.0,
+    "mouseSensitivity": 0.018,
+    "mouseSmoothing": 0.35,
+    "mouseRecenterPerSecond": 7.5
+  }
+}

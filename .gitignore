@@ -1,0 +1,7 @@
+build/
+dist/
+.venv-win/
+backups/
+__pycache__/
+*.pyc
+*.spec
