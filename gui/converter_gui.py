@@ -122,6 +122,47 @@ class AnalogSettings:
     mouse_recenter_per_second: float = 7.5
 
 
+@dataclass(frozen=True)
+class MappingTarget:
+    label: str
+    key: str
+
+
+MAPPING_TARGETS = (
+    MappingTarget("Pad A", "button:A"),
+    MappingTarget("Pad B", "button:B"),
+    MappingTarget("Pad X", "button:X"),
+    MappingTarget("Pad Y", "button:Y"),
+    MappingTarget("LB", "button:LB"),
+    MappingTarget("RB", "button:RB"),
+    MappingTarget("LT", "trigger:LT"),
+    MappingTarget("RT", "trigger:RT"),
+    MappingTarget("Start", "button:Start"),
+    MappingTarget("Back", "button:Back"),
+    MappingTarget("LS", "button:LS"),
+    MappingTarget("RS", "button:RS"),
+    MappingTarget("DPad Up", "button:DUp"),
+    MappingTarget("DPad Down", "button:DDown"),
+    MappingTarget("DPad Left", "button:DLeft"),
+    MappingTarget("DPad Right", "button:DRight"),
+    MappingTarget("LStick Left", "stick:left"),
+    MappingTarget("LStick Right", "stick:right"),
+    MappingTarget("LStick Up", "stick:up"),
+    MappingTarget("LStick Down", "stick:down"),
+)
+MAPPING_LABELS = {target.key: target.label for target in MAPPING_TARGETS}
+MAPPING_KEYS = tuple(target.key for target in MAPPING_TARGETS)
+
+
+def split_mapping_key(key: str) -> tuple[str, str]:
+    kind, name = key.split(":", 1)
+    return kind, name
+
+
+def mapping_label(key: str) -> str:
+    return MAPPING_LABELS.get(key, key)
+
+
 def normalize_input_name(value: str) -> str:
     token = value.strip().lower().replace(" ", "_").replace("-", "_")
     aliases = {
@@ -156,7 +197,8 @@ def parse_inputs(value: str | list[str] | set[str]) -> set[str]:
         raw_values = value.split(",")
     else:
         raw_values = list(value)
-    return {normalize_input_name(item) for item in raw_values if normalize_input_name(item)}
+    normalized = (normalize_input_name(item) for item in raw_values)
+    return {item for item in normalized if item}
 
 
 def display_input_name(value: str) -> str:
@@ -228,6 +270,36 @@ class MappingProfile:
         for values in self.left_stick.values():
             inputs.update(values)
         return inputs
+
+    def inputs_for_key(self, key: str) -> set[str]:
+        kind, name = split_mapping_key(key)
+        if kind == "button":
+            return self.button_inputs[name]
+        if kind == "trigger" and name == "LT":
+            return self.left_trigger_inputs
+        if kind == "trigger" and name == "RT":
+            return self.right_trigger_inputs
+        if kind == "stick":
+            return self.left_stick[name]
+        raise KeyError(f"Unknown mapping key: {key}")
+
+    def find_input_owner(self, input_name: str, target_keys: tuple[str, ...] = MAPPING_KEYS) -> str | None:
+        input_name = normalize_input_name(input_name)
+        for key in target_keys:
+            if input_name in self.inputs_for_key(key):
+                return key
+        return None
+
+    def add_unique_input(self, key: str, input_name: str, target_keys: tuple[str, ...] = MAPPING_KEYS) -> str | None:
+        input_name = normalize_input_name(input_name)
+        owner = self.find_input_owner(input_name, target_keys)
+        if owner is not None:
+            return owner
+        self.inputs_for_key(key).add(input_name)
+        return None
+
+    def remove_input(self, key: str, input_name: str) -> None:
+        self.inputs_for_key(key).discard(normalize_input_name(input_name))
 
 
 def load_profile() -> MappingProfile:
@@ -998,39 +1070,18 @@ class ConverterGui:
         mapping.columnconfigure(1, weight=1)
         mapping.columnconfigure(3, weight=1)
 
-        rows = [
-            ("Pad A", "button:A"),
-            ("Pad B", "button:B"),
-            ("Pad X", "button:X"),
-            ("Pad Y", "button:Y"),
-            ("LB", "button:LB"),
-            ("RB", "button:RB"),
-            ("LT", "trigger:LT"),
-            ("RT", "trigger:RT"),
-            ("Start", "button:Start"),
-            ("Back", "button:Back"),
-            ("LS", "button:LS"),
-            ("RS", "button:RS"),
-            ("DPad Up", "button:DUp"),
-            ("DPad Down", "button:DDown"),
-            ("DPad Left", "button:DLeft"),
-            ("DPad Right", "button:DRight"),
-            ("LStick Left", "stick:left"),
-            ("LStick Right", "stick:right"),
-            ("LStick Up", "stick:up"),
-            ("LStick Down", "stick:down"),
-        ]
-
-        split_at = (len(rows) + 1) // 2
-        for index, (label, key) in enumerate(rows):
+        split_at = (len(MAPPING_TARGETS) + 1) // 2
+        for index, target in enumerate(MAPPING_TARGETS):
             row = index if index < split_at else index - split_at
             column = 0 if index < split_at else 2
-            ttk.Button(mapping, text=label, command=lambda item_key=key: self._begin_mapping_capture(item_key)).grid(
-                row=row, column=column, sticky="ew", pady=2, padx=(0, 6)
-            )
+            ttk.Button(
+                mapping,
+                text=target.label,
+                command=lambda item_key=target.key: self._begin_mapping_capture(item_key),
+            ).grid(row=row, column=column, sticky="ew", pady=2, padx=(0, 6))
             chip_frame = ttk.Frame(mapping)
             chip_frame.grid(row=row, column=column + 1, sticky="ew", pady=2, padx=(0, 12))
-            self.mapping_rows[key] = chip_frame
+            self.mapping_rows[target.key] = chip_frame
 
         buttons = ttk.Frame(mapping)
         buttons.grid(row=split_at, column=0, columnspan=4, sticky="ew", pady=(10, 0))
@@ -1043,16 +1094,7 @@ class ConverterGui:
         self._refresh_mapping_editor()
 
     def _mapping_inputs(self, key: str) -> set[str]:
-        kind, name = key.split(":", 1)
-        if kind == "button":
-            return self.profile.button_inputs[name]
-        if kind == "trigger" and name == "LT":
-            return self.profile.left_trigger_inputs
-        if kind == "trigger" and name == "RT":
-            return self.profile.right_trigger_inputs
-        if kind == "stick":
-            return self.profile.left_stick[name]
-        return set()
+        return self.profile.inputs_for_key(key)
 
     def _refresh_mapping_editor(self) -> None:
         ttk = self.ttk
@@ -1072,27 +1114,14 @@ class ConverterGui:
 
     def _begin_mapping_capture(self, key: str) -> None:
         self.mapping_capture_key = key
-        self._set_text(self.status_text, f"Mapping {self._mapping_label(key)}: press a key or click the pad preview")
-
-    def _mapping_label(self, key: str) -> str:
-        labels = {
-            "trigger:LT": "LT",
-            "trigger:RT": "RT",
-            "stick:left": "LStick Left",
-            "stick:right": "LStick Right",
-            "stick:up": "LStick Up",
-            "stick:down": "LStick Down",
-        }
-        if key.startswith("button:"):
-            return key.split(":", 1)[1]
-        return labels.get(key, key)
+        self._set_text(self.status_text, f"Mapping {mapping_label(key)}: press a key or click the pad preview")
 
     def _remove_mapping_input(self, key: str, input_name: str) -> None:
-        self._mapping_inputs(key).discard(input_name)
+        self.profile.remove_input(key, input_name)
         self.mapping_capture_key = None
         self._apply_profile(self.profile)
         self._refresh_mapping_editor()
-        self._set_text(self.status_text, f"Removed {display_input_name(input_name)} from {self._mapping_label(key)}")
+        self._set_text(self.status_text, f"Removed {display_input_name(input_name)} from {mapping_label(key)}")
 
     def _add_mapping_input(self, input_name: str) -> None:
         input_name = normalize_input_name(input_name)
@@ -1100,26 +1129,19 @@ class ConverterGui:
         if not key or not input_name:
             return
 
-        existing_owner = self._find_mapping_owner(input_name)
+        existing_owner = self.profile.add_unique_input(key, input_name)
         if existing_owner is not None:
             self.mapping_capture_key = None
             self._set_text(
                 self.status_text,
-                f"{display_input_name(input_name)} is already mapped to {self._mapping_label(existing_owner)}",
+                f"{display_input_name(input_name)} is already mapped to {mapping_label(existing_owner)}",
             )
             return
 
-        self._mapping_inputs(key).add(input_name)
         self.mapping_capture_key = None
         self._apply_profile(self.profile)
         self._refresh_mapping_editor()
-        self._set_text(self.status_text, f"Added {display_input_name(input_name)} to {self._mapping_label(key)}")
-
-    def _find_mapping_owner(self, input_name: str) -> str | None:
-        for key in self.mapping_rows:
-            if input_name in self._mapping_inputs(key):
-                return key
-        return None
+        self._set_text(self.status_text, f"Added {display_input_name(input_name)} to {mapping_label(key)}")
 
     def _slider(
         self,
@@ -1459,6 +1481,14 @@ def self_test() -> None:
     trigger_state = MappingEngine().update(InputSnapshot(keys={"j", "k"}), 1.0 / 60.0)
     assert trigger_state.right_trigger == 255
     assert trigger_state.left_trigger == 255
+    profile = MappingProfile.defaults()
+    assert profile.find_input_owner("space") == "button:A"
+    assert profile.add_unique_input("button:B", "space") == "button:A"
+    assert "space" not in profile.inputs_for_key("button:B")
+    assert profile.add_unique_input("button:B", "z") is None
+    assert "z" in profile.inputs_for_key("button:B")
+    profile.remove_input("button:B", "z")
+    assert "z" not in profile.inputs_for_key("button:B")
     print("converter_gui self-test passed")
 
 
