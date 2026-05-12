@@ -159,8 +159,21 @@ def parse_inputs(value: str | list[str] | set[str]) -> set[str]:
     return {normalize_input_name(item) for item in raw_values if normalize_input_name(item)}
 
 
-def format_inputs(values: set[str] | list[str]) -> str:
-    return ", ".join(sorted(values))
+def display_input_name(value: str) -> str:
+    labels = {
+        "button1": "Mouse Left",
+        "button2": "Mouse Middle",
+        "button3": "Mouse Right",
+        "button4": "Mouse 4",
+        "button5": "Mouse 5",
+        "control_l": "Left Ctrl",
+        "shift_l": "Left Shift",
+        "return": "Enter",
+        "escape": "Esc",
+        "space": "Space",
+        "tab": "Tab",
+    }
+    return labels.get(value, value.upper() if len(value) == 1 else value)
 
 
 def input_active(input_state: InputSnapshot, inputs: set[str]) -> bool:
@@ -890,7 +903,9 @@ class ConverterGui:
         self.deadzone_var = tk.DoubleVar(value=self.engine.analog.deadzone)
         self.sensitivity_var = tk.DoubleVar(value=self.engine.analog.mouse_sensitivity)
         self.smoothing_var = tk.DoubleVar(value=self.engine.analog.mouse_smoothing)
-        self.mapping_vars: dict[str, object] = {}
+        self.mapping_rows: dict[str, object] = {}
+        self.mapping_capture_key: str | None = None
+        self.mapping_frame = None
 
         self._build_ui()
         self._bind_events()
@@ -978,6 +993,7 @@ class ConverterGui:
     def _build_mapping_editor(self, parent) -> None:
         ttk = self.ttk
         mapping = ttk.LabelFrame(parent, text="Mapping", padding=12)
+        self.mapping_frame = mapping
         mapping.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
         mapping.columnconfigure(1, weight=1)
         mapping.columnconfigure(3, weight=1)
@@ -993,6 +1009,12 @@ class ConverterGui:
             ("RT", "trigger:RT"),
             ("Start", "button:Start"),
             ("Back", "button:Back"),
+            ("LS", "button:LS"),
+            ("RS", "button:RS"),
+            ("DPad Up", "button:DUp"),
+            ("DPad Down", "button:DDown"),
+            ("DPad Left", "button:DLeft"),
+            ("DPad Right", "button:DRight"),
             ("LStick Left", "stick:left"),
             ("LStick Right", "stick:right"),
             ("LStick Up", "stick:up"),
@@ -1003,10 +1025,12 @@ class ConverterGui:
         for index, (label, key) in enumerate(rows):
             row = index if index < split_at else index - split_at
             column = 0 if index < split_at else 2
-            variable = self.tk.StringVar(value=self._mapping_value(key))
-            self.mapping_vars[key] = variable
-            ttk.Label(mapping, text=label).grid(row=row, column=column, sticky="w", pady=2, padx=(0, 6))
-            ttk.Entry(mapping, textvariable=variable, width=20).grid(row=row, column=column + 1, sticky="ew", pady=2, padx=(0, 12))
+            ttk.Button(mapping, text=label, command=lambda item_key=key: self._begin_mapping_capture(item_key)).grid(
+                row=row, column=column, sticky="ew", pady=2, padx=(0, 6)
+            )
+            chip_frame = ttk.Frame(mapping)
+            chip_frame.grid(row=row, column=column + 1, sticky="ew", pady=2, padx=(0, 12))
+            self.mapping_rows[key] = chip_frame
 
         buttons = ttk.Frame(mapping)
         buttons.grid(row=split_at, column=0, columnspan=4, sticky="ew", pady=(10, 0))
@@ -1016,18 +1040,86 @@ class ConverterGui:
         ttk.Button(buttons, text="Apply", command=self._apply_mapping_from_ui).grid(row=0, column=0, sticky="ew", padx=(0, 4))
         ttk.Button(buttons, text="Save", command=self._save_mapping_from_ui).grid(row=0, column=1, sticky="ew", padx=4)
         ttk.Button(buttons, text="Defaults", command=self._restore_default_mapping).grid(row=0, column=2, sticky="ew", padx=(4, 0))
+        self._refresh_mapping_editor()
 
-    def _mapping_value(self, key: str) -> str:
+    def _mapping_inputs(self, key: str) -> set[str]:
         kind, name = key.split(":", 1)
         if kind == "button":
-            return format_inputs(self.profile.button_inputs[name])
+            return self.profile.button_inputs[name]
         if kind == "trigger" and name == "LT":
-            return format_inputs(self.profile.left_trigger_inputs)
+            return self.profile.left_trigger_inputs
         if kind == "trigger" and name == "RT":
-            return format_inputs(self.profile.right_trigger_inputs)
+            return self.profile.right_trigger_inputs
         if kind == "stick":
-            return format_inputs(self.profile.left_stick[name])
-        return ""
+            return self.profile.left_stick[name]
+        return set()
+
+    def _refresh_mapping_editor(self) -> None:
+        ttk = self.ttk
+        for key, frame in self.mapping_rows.items():
+            for child in frame.winfo_children():
+                child.destroy()
+            values = sorted(self._mapping_inputs(key))
+            if not values:
+                ttk.Label(frame, text="click target, then press input").grid(row=0, column=0, sticky="w")
+                continue
+            for column, input_name in enumerate(values):
+                ttk.Button(
+                    frame,
+                    text=f"{display_input_name(input_name)} x",
+                    command=lambda item_key=key, value=input_name: self._remove_mapping_input(item_key, value),
+                ).grid(row=0, column=column, sticky="w", padx=(0, 4))
+
+    def _begin_mapping_capture(self, key: str) -> None:
+        self.mapping_capture_key = key
+        self._set_text(self.status_text, f"Mapping {self._mapping_label(key)}: press a key or click the pad preview")
+
+    def _mapping_label(self, key: str) -> str:
+        labels = {
+            "trigger:LT": "LT",
+            "trigger:RT": "RT",
+            "stick:left": "LStick Left",
+            "stick:right": "LStick Right",
+            "stick:up": "LStick Up",
+            "stick:down": "LStick Down",
+        }
+        if key.startswith("button:"):
+            return key.split(":", 1)[1]
+        return labels.get(key, key)
+
+    def _remove_mapping_input(self, key: str, input_name: str) -> None:
+        self._mapping_inputs(key).discard(input_name)
+        self.mapping_capture_key = None
+        self._apply_profile(self.profile)
+        self._refresh_mapping_editor()
+        self._set_text(self.status_text, f"Removed {display_input_name(input_name)} from {self._mapping_label(key)}")
+
+    def _add_mapping_input(self, input_name: str) -> None:
+        input_name = normalize_input_name(input_name)
+        key = self.mapping_capture_key
+        if not key or not input_name:
+            return
+
+        existing_owner = self._find_mapping_owner(input_name)
+        if existing_owner is not None:
+            self.mapping_capture_key = None
+            self._set_text(
+                self.status_text,
+                f"{display_input_name(input_name)} is already mapped to {self._mapping_label(existing_owner)}",
+            )
+            return
+
+        self._mapping_inputs(key).add(input_name)
+        self.mapping_capture_key = None
+        self._apply_profile(self.profile)
+        self._refresh_mapping_editor()
+        self._set_text(self.status_text, f"Added {display_input_name(input_name)} to {self._mapping_label(key)}")
+
+    def _find_mapping_owner(self, input_name: str) -> str | None:
+        for key in self.mapping_rows:
+            if input_name in self._mapping_inputs(key):
+                return key
+        return None
 
     def _slider(
         self,
@@ -1046,8 +1138,9 @@ class ConverterGui:
         )
 
     def _bind_events(self) -> None:
-        self.root.bind("<KeyPress>", self._on_key_press)
-        self.root.bind("<KeyRelease>", self._on_key_release)
+        self.root.bind_all("<KeyPress>", self._on_key_press)
+        self.root.bind_all("<KeyRelease>", self._on_key_release)
+        self.root.bind_all("<ButtonPress>", self._on_any_mouse_press, add="+")
         self.canvas.bind("<Motion>", self._on_mouse_motion)
         self.canvas.bind("<ButtonPress>", self._on_mouse_press)
         self.canvas.bind("<ButtonRelease>", self._on_mouse_release)
@@ -1067,10 +1160,29 @@ class ConverterGui:
         self._render_pending = True
 
     def _on_key_press(self, event) -> None:
+        if self.mapping_capture_key is not None:
+            self._add_mapping_input(normalize_input_name(event.keysym))
+            return "break"
         self.input_state.keys.add(event.keysym.lower())
+        return None
 
     def _on_key_release(self, event) -> None:
         self.input_state.keys.discard(event.keysym.lower())
+
+    def _on_any_mouse_press(self, event) -> str | None:
+        if self.mapping_capture_key is None:
+            return None
+        if self._is_mapping_widget(event.widget):
+            return None
+        self._add_mapping_input(f"button{event.num}")
+        return "break"
+
+    def _is_mapping_widget(self, widget) -> bool:
+        if self.mapping_frame is None:
+            return False
+        mapping_path = str(self.mapping_frame)
+        widget_path = str(widget)
+        return widget_path == mapping_path or widget_path.startswith(f"{mapping_path}.")
 
     def _on_mouse_motion(self, event) -> None:
         if self.last_mouse_pos is not None:
@@ -1079,7 +1191,11 @@ class ConverterGui:
         self.last_mouse_pos = (event.x, event.y)
 
     def _on_mouse_press(self, event) -> None:
+        if self.mapping_capture_key is not None:
+            self._add_mapping_input(f"button{event.num}")
+            return "break"
         self.input_state.mouse_buttons.add(f"button{event.num}")
+        return None
 
     def _on_mouse_release(self, event) -> None:
         self.input_state.mouse_buttons.discard(f"button{event.num}")
@@ -1092,21 +1208,6 @@ class ConverterGui:
         self.engine.analog.mouse_sensitivity = float(self.sensitivity_var.get())
         self.engine.analog.mouse_smoothing = float(self.smoothing_var.get())
 
-    def _profile_from_ui(self) -> MappingProfile:
-        profile = MappingProfile.defaults()
-        for key, variable in self.mapping_vars.items():
-            kind, name = key.split(":", 1)
-            values = parse_inputs(variable.get())
-            if kind == "button":
-                profile.button_inputs[name] = values
-            elif kind == "trigger" and name == "LT":
-                profile.left_trigger_inputs = values
-            elif kind == "trigger" and name == "RT":
-                profile.right_trigger_inputs = values
-            elif kind == "stick":
-                profile.left_stick[name] = values
-        return profile
-
     def _apply_profile(self, profile: MappingProfile) -> None:
         self.profile = profile
         old_analog = self.engine.analog
@@ -1116,20 +1217,22 @@ class ConverterGui:
         self.global_capture.reset()
 
     def _apply_mapping_from_ui(self) -> None:
-        self._apply_profile(self._profile_from_ui())
-        self.status_text.set("Mapping applied")
+        self.mapping_capture_key = None
+        self._apply_profile(self.profile)
+        self._refresh_mapping_editor()
+        self._set_text(self.status_text, "Mapping applied")
 
     def _save_mapping_from_ui(self) -> None:
         self._apply_mapping_from_ui()
         save_profile(self.profile)
-        self.status_text.set(f"Mapping saved: {CONFIG_PATH}")
+        self._set_text(self.status_text, f"Mapping saved: {CONFIG_PATH}")
 
     def _restore_default_mapping(self) -> None:
         self.profile = MappingProfile.defaults()
-        for key, variable in self.mapping_vars.items():
-            variable.set(self._mapping_value(key))
+        self.mapping_capture_key = None
         self._apply_profile(self.profile)
-        self.status_text.set("Default mapping restored")
+        self._refresh_mapping_editor()
+        self._set_text(self.status_text, "Default mapping restored")
 
     def _reset(self) -> None:
         old_analog = self.engine.analog
