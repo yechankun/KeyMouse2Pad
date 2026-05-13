@@ -50,7 +50,15 @@ jobs:
       - name: Run GUI self-test
         run: python gui/converter_gui.py --self-test
       - name: Install build dependencies
-        run: python -m pip install --disable-pip-version-check pyinstaller vgamepad
+        timeout-minutes: 5
+        run: >-
+          python -m pip install
+          --disable-pip-version-check
+          --timeout 60
+          --retries 2
+          --only-binary=:all:
+          pyinstaller==6.20.0
+          vgamepad==0.1.0
       - name: Build executable
         shell: pwsh
         run: |
