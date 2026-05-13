@@ -67,3 +67,6 @@ py -3 gui\converter_gui.py --self-test
 
 KeyMouse2Pad는 GNU General Public License v3.0 or later로 배포됩니다.
 자세한 내용은 [LICENSE](LICENSE)를 확인하세요.
+
+서드파티 런타임 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를
+확인하세요.

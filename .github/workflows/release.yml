@@ -58,27 +58,21 @@ jobs:
           --retries 2
           --only-binary=:all:
           pyinstaller==6.20.0
-      - name: Install vgamepad
-        timeout-minutes: 5
-        run: >-
-          python -m pip install
-          --disable-pip-version-check
-          --timeout 60
-          --retries 2
-          --no-deps
-          vgamepad==0.1.0
       - name: Build executable
         shell: pwsh
         run: |
-          $vigemRoot = python -c "import pathlib, vgamepad; print(pathlib.Path(vgamepad.__file__).resolve().parent / 'win' / 'vigem' / 'client')"
           python -m PyInstaller `
             --noconfirm `
             --clean `
             --onefile `
             --windowed `
+            --paths vendor `
             --hidden-import vgamepad `
-            --add-binary "$vigemRoot\x64\ViGEmClient.dll;vgamepad\win\vigem\client\x64" `
-            --add-binary "$vigemRoot\x86\ViGEmClient.dll;vgamepad\win\vigem\client\x86" `
+            --hidden-import vgamepad.win.vigem_client `
+            --hidden-import vgamepad.win.vigem_commons `
+            --hidden-import vgamepad.win.virtual_gamepad `
+            --add-binary "vendor\vgamepad\win\vigem\client\x64\ViGEmClient.dll;vgamepad\win\vigem\client\x64" `
+            --add-binary "vendor\vgamepad\win\vigem\client\x86\ViGEmClient.dll;vgamepad\win\vigem\client\x86" `
             --name KeyMouse2Pad `
             gui\converter_gui.py
       - name: Upload build artifact
